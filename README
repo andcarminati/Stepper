@@ -2,7 +2,7 @@ Stepper: function by function execution using profile code.
 
 To use this tool you must compile and link it with your code, i.e.
 
-gcc -o your_app stepper.c mcount_wrapper.s your_code.c -pg
+gcc -o your_app stepper.c mcount_wrapper.s your_code.c -pg -g
 ./your_app
 
 Alternativelly, you can use the demo:
