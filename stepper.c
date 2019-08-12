@@ -506,7 +506,7 @@ void __attribute__((no_instrument_function))print_line_info(unsigned long addr){
     for(i = 0; i < line_info_used-1; i++){
         //printf("target 0x%04x - actual 0x%04x\n", addr, lineinfo[i].addr);
         if(addr >= lineinfo[i].addr && addr < lineinfo[i+1].addr){
-            printf("  will return to %s:line %d", lineinfo[i].file,lineinfo[i].line );
+            printf("  called by %s:line %d", lineinfo[i-1].file,lineinfo[i-1].line );
         }
     }
 }
