@@ -288,7 +288,7 @@ void __attribute__((no_instrument_function)) load_dwarf_data() {
             debug_line = malloc(header->sh_size);
             fseek(exe_file, header->sh_offset, SEEK_SET);
             fread(debug_line, header->sh_size, 1, exe_file);
-            printf("Dwarf debug line size: %d\n", header->sh_size);
+            //printf("Dwarf debug line size: %d\n", header->sh_size);
             size = header->sh_size;
             debug_line_size = header->sh_size;
             break;
@@ -302,7 +302,7 @@ void __attribute__((no_instrument_function)) load_dwarf_data() {
             fseek(exe_file, header->sh_offset, SEEK_SET);
             fread(debug_str, header->sh_size, 1, exe_file);
             //size = header->sh_size;
-            printf("Dwarf debug strings size: %d\n", header->sh_size);
+            //printf("Dwarf debug strings size: %d\n", header->sh_size);
             break;
         }
     }
@@ -463,6 +463,7 @@ char* __attribute__((no_instrument_function)) SLEB128_read(char* buff, long *val
 typedef struct line_info{
     long addr;
     int line;
+    int column;
     char* file;
 } line_info;
 
@@ -485,14 +486,15 @@ void __attribute__((no_instrument_function)) check_line_info_table(){
     }
 }
 
-void __attribute__((no_instrument_function))add_line_point(long addr, int line, char* file) {
+void __attribute__((no_instrument_function))add_line_point(long addr, int line, int column, char* file) {
 
-    printf("0x%04x --> %s:%d\n", addr, file, line);
+    //printf("0x%04x --> %s:%d\n", addr, file, line);
     check_line_info_table();
     
     lineinfo[line_info_used].addr = addr;
     lineinfo[line_info_used].file = file;
     lineinfo[line_info_used].line = line;
+    lineinfo[line_info_used].column = column;
     line_info_used++;
 }
 
@@ -506,7 +508,8 @@ void __attribute__((no_instrument_function))print_line_info(unsigned long addr){
     for(i = 0; i < line_info_used-1; i++){
         //printf("target 0x%04x - actual 0x%04x\n", addr, lineinfo[i].addr);
         if(addr >= lineinfo[i].addr && addr < lineinfo[i+1].addr){
-            printf("  called by %s:line %d", lineinfo[i-1].file,lineinfo[i-1].line );
+            printf("  called by %s:[line %d, column: %d]", lineinfo[i-1].file,
+                    lineinfo[i-1].line, lineinfo[i-1].column );
         }
     }
 }
@@ -582,6 +585,7 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
         char* lines = files + 1;
         unsigned long address;
         int line = 1;
+        int column = 1;
         int has_more = 1;
 
         while (has_more) {
@@ -590,7 +594,7 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
             switch (op) {
                 case DW_LNS_copy:
                 {
-                    add_line_point(address, line, main_file);
+                    add_line_point(address, line, column, main_file);
                     //printf("copy\n");
                     break;
                 }
@@ -616,6 +620,7 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
                 {
                     long c;
                     lines = ULEB128_read(lines, &c);
+                    column = c;
                     //printf("set col %d.\n", c);
                     break;
                 }
@@ -643,7 +648,7 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
                     switch (op_ext) {
                         case DW_LNE_end_sequence:
                         {
-                            add_line_point(address, line, main_file);
+                            add_line_point(address, line, column, main_file);
                             has_more = 0;
                             break;
                         }
@@ -678,7 +683,7 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
                     address += (unsigned int) addr_incr;
                     line += (unsigned int) line_incr;
                     //printf("address %04x (+ %d)- line %d (+ %d)\n", address, addr_incr, line, line_incr);
-                    add_line_point(address, line, main_file);
+                    add_line_point(address, line, column, main_file);
                     break;
                 }
             }
