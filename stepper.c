@@ -106,7 +106,7 @@ void __attribute__((no_instrument_function)) step(long addr,
 
     if (init1 == 0) {
         printf("==========================================\n");
-        printf("Stepper 0.01 - by Andreu Carminati\n");
+        printf("Stepper 0.02 - by Andreu Carminati\n");
         printf("==========================================\n");
         //print_symbols();
 
@@ -125,7 +125,7 @@ void __attribute__((no_instrument_function)) step(long addr,
 
         fread(&exe_header, sizeof (Elf32_Ehdr), 1, exe_file);
         char* start = find_symbol_name_by_ra(exe_header.e_entry);
-        printf("Entry address: 0x%x -> %s \n", exe_header.e_entry, start);
+        printf("Entry address: 0x%lx -> %s \n", exe_header.e_entry, start);
 
         printf("==========================================\n");
         printf("Your option: ");
@@ -160,9 +160,9 @@ void __attribute__((no_instrument_function)) step(long addr,
         //dump_call_seq_from_stack(stack_parent);	
 
 
-        printf("Thread id %d: ", syscall(SYS_gettid));
+        printf("Thread id %ld: ", syscall(SYS_gettid));
         track_chaining(stack_parent);
-        printf("[%s] <0x%x> ", name, addr);
+        printf("[%s] <0x%lx> ", name, addr);
         //dump_call_seq_from_stack(stack_parent);
         print_line_info(addr);
         printf("\n");
@@ -196,6 +196,7 @@ int __attribute__((no_instrument_function)) read_elf() {
     load_strtab();
     load_dwarf_data();
     //dwarf_parse_line_info();
+    return 0;
 }
 
 void __attribute__((no_instrument_function)) load_program_headers() {
@@ -332,7 +333,7 @@ void __attribute__((no_instrument_function)) print_symbols() {
     for (i = 0; i < n_symbol; i++) {
         symb = &symbol_table[i];
         if (ELF64_ST_TYPE(symb->st_info) == STT_FUNC) {
-            printf("FUNCTION: %s addr: 0x%x to 0x%x\n", &strtab[symb->st_name], symb->st_value, symb->st_value + symb->st_size);
+            printf("FUNCTION: %s addr: 0x%lx to 0x%lx\n", &strtab[symb->st_name], symb->st_value, symb->st_value + symb->st_size);
         }
 
 
@@ -367,7 +368,7 @@ void __attribute__((no_instrument_function)) dump_call_seq_from_stack(unsigned l
     do {
         printf("-> ");
         name = find_symbol_name_by_ra(link->ra);
-        printf("%s <0x%x> ", name, link->ra);
+        printf("%s <0x%lx> ", name, link->ra);
         link = (void*) link->base_pointer_reg;
     } while (strcmp(name, "main") != 0);
     printf("}\n");
@@ -421,7 +422,7 @@ void __attribute__((no_instrument_function)) disable_tracing() {
 #define DW_LNE_set_discriminator 4 // dwarfv4
 
 //adapted from addr2line
-char* __attribute__((no_instrument_function)) ULEB128_read(char* buff, long *val) {
+char* __attribute__((no_instrument_function)) ULEB128_read(char* buff, unsigned long *val) {
     int result = 0;
     int shift = 0;
 
@@ -570,9 +571,9 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
         while (files[0] != '\0') {
             char* actual_file = files;
             char* conf = files + (strlen(actual_file) + 1);
-            long dir;
-            long time;
-            long tam;
+            unsigned long dir;
+            unsigned long time;
+            unsigned long tam;
 
             conf = ULEB128_read(conf, &dir);
             conf = ULEB128_read(conf, &time);
@@ -600,7 +601,7 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
                 }
                 case DW_LNS_advance_pc:
                 {
-                    long a;
+                    unsigned long a;
                     lines = ULEB128_read(lines, &a);
                     //printf("Advancing pc by %d to %d\n", a, address+a);
                     address += a;
@@ -618,7 +619,7 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
                     break;
                 case DW_LNS_set_column:
                 {
-                    long c;
+                    unsigned long c;
                     lines = ULEB128_read(lines, &c);
                     column = c;
                     //printf("set col %d.\n", c);
