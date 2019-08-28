@@ -525,7 +525,7 @@ void __attribute__((no_instrument_function))print_line_info(unsigned long addr){
     if(!lineinfo){
         return;
     }
-    
+    addr-=offset;
     int i;
     for(i = 0; i < line_info_used-1; i++){
         //printf("target 0x%04x - actual 0x%04x\n", addr, lineinfo[i].addr);
