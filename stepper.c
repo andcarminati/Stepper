@@ -38,8 +38,6 @@ typedef struct __attribute__((packed)) {
 }
 debug_line_header;
 
-
-
 int init = 0;
 int init1 = 0;
 int mode = 0;
@@ -79,6 +77,7 @@ char* get_shstrtab_str(int index);
 void load_syntab(void);
 void load_strtab(void);
 void print_symbols(void);
+unsigned long find_address_by_name(char* func);
 char* find_symbol_name_by_ra(long);
 void dump_call_seq_from_stack(unsigned long);
 void track_chaining(unsigned long);
@@ -87,6 +86,7 @@ void init_line_info_table();
 void print_line_info(unsigned long addr);
 
 void mcount();
+void _start();
 
 /*this structure allow us to walk on stack frames of chained procedure calls*/
 struct __attribute__((packed)) stack_link {
@@ -94,6 +94,7 @@ struct __attribute__((packed)) stack_link {
     unsigned long ra;
 };
 
+unsigned long offset = 0;
 //long stack_pointer;
 
 void __attribute__((no_instrument_function)) step(long addr,
@@ -126,6 +127,9 @@ void __attribute__((no_instrument_function)) step(long addr,
         fread(&exe_header, sizeof (Elf32_Ehdr), 1, exe_file);
         char* start = find_symbol_name_by_ra(exe_header.e_entry);
         printf("Entry address: 0x%lx -> %s \n", exe_header.e_entry, start);
+        
+        
+        offset = (unsigned long)_start - exe_header.e_entry;
 
         printf("==========================================\n");
         printf("Your option: ");
@@ -340,11 +344,28 @@ void __attribute__((no_instrument_function)) print_symbols() {
     }
 }
 
+unsigned long __attribute__((no_instrument_function)) find_address_by_name(char* func) {
+
+    Elf64_Sym* symb;
+    int i;
+
+    for (i = 0; i < n_symbol; i++) {
+        symb = &symbol_table[i];
+        if (ELF64_ST_TYPE(symb->st_info) == STT_FUNC) {
+            if(strcmp(func, &strtab[symb->st_name]) == 0){
+                return symb->st_value;
+            }
+        }
+    }
+    return 0;
+}
+
 char* __attribute__((no_instrument_function)) find_symbol_name_by_ra(long ra) {
 
     Elf64_Sym* symb;
     char* symb_name = NULL;
     int i;
+    ra-=offset;
 
     for (i = 0; i < n_symbol; i++) {
         symb = &symbol_table[i];

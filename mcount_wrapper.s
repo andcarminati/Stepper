@@ -1,7 +1,7 @@
  .macro MCOUNT_SAVE_FRAME
 	/* taken from glibc */	
 	
-	subq $0x38, %rsp
+	subq $56, %rsp
 	movq %rax, (%rsp)
 	movq %rcx, 8(%rsp)
 	movq %rdx, 16(%rsp)
@@ -19,7 +19,7 @@
 	movq 16(%rsp), %rdx
 	movq 8(%rsp), %rcx
 	movq (%rsp), %rax
-	addq $0x38, %rsp
+	addq $56, %rsp
 	.endm    
 	
 
