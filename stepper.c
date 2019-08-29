@@ -67,7 +67,9 @@ int n_symbol;
 /*symbol table readed from elf*/
 Elf64_Sym* symbol_table = NULL;
 
+/*initialize elf information*/
 void init_elf(void);
+/*read elf file*/
 int read_elf(void);
 void load_program_headers(void);
 void load_section_headers(void);
@@ -83,9 +85,12 @@ void dump_call_seq_from_stack(unsigned long);
 void track_chaining(unsigned long);
 void dwarf_parse_line_info();
 void init_line_info_table();
+void dump_param_regs(long*);
 void print_line_info(unsigned long addr);
 
+/*reference to the mcount profile function*/
 void mcount();
+/*reference to the _start function. Used to determine the load offset*/
 void _start();
 
 /*this structure allow us to walk on stack frames of chained procedure calls*/
@@ -94,12 +99,14 @@ struct __attribute__((packed)) stack_link {
     unsigned long ra;
 };
 
+/*load offset - subtracted of every code address*/
 unsigned long offset = 0;
 //long stack_pointer;
 
+/*entry point of the tracing code. Called from mcount*/
 void __attribute__((no_instrument_function)) step(long addr,
         long parent,
-        long stack_parent) {
+        long stack_parent, long* stack) {
 
     char buffer[20];
 
@@ -164,9 +171,10 @@ void __attribute__((no_instrument_function)) step(long addr,
         //dump_call_seq_from_stack(stack_parent);	
 
 
-        printf("Thread id %ld: ", syscall(SYS_gettid));
+        //printf("Thread id %ld: ", syscall(SYS_gettid));
         track_chaining(stack_parent);
-        printf("[%s] <0x%lx> ", name, addr);
+        printf("%s", name);
+        dump_param_regs(stack);
         //dump_call_seq_from_stack(stack_parent);
         print_line_info(addr);
         printf("\n");
@@ -174,6 +182,13 @@ void __attribute__((no_instrument_function)) step(long addr,
 
 
     return;
+}
+
+void __attribute__((no_instrument_function)) dump_param_regs(long* stack){
+    printf("(rdi=%ld, ", stack[4]);
+    printf("rsi=%ld, ",  stack[3]);
+    printf("rdx=%ld,", stack[2]);
+    printf("rcx=%ld...)", stack[1]);
 }
 
 void __attribute__((no_instrument_function)) init_elf() {
@@ -408,7 +423,7 @@ void __attribute__((no_instrument_function)) track_chaining(unsigned long parent
         i++;
     } while (strcmp(name, "main") != 0);
 
-    for (j = 0; j < i; j++) {
+    for (j = 1; j < i; j++) {
         printf("    ");
     }
     printf("|->");
@@ -530,7 +545,7 @@ void __attribute__((no_instrument_function))print_line_info(unsigned long addr){
     for(i = 0; i < line_info_used-1; i++){
         //printf("target 0x%04x - actual 0x%04x\n", addr, lineinfo[i].addr);
         if(addr >= lineinfo[i].addr && addr < lineinfo[i+1].addr){
-            printf("  called by %s:[line %d, column: %d]", lineinfo[i-1].file,
+            printf(" called by %s:[l:%d, c:%d]", lineinfo[i-1].file,
                     lineinfo[i-1].line, lineinfo[i-1].column );
         }
     }

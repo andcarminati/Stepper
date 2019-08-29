@@ -37,7 +37,8 @@ mcount:
 	movq 8(%rbp), %rsi
 	movq %rbp, %rdx
 	subq $5, %rdi
-
+        movq %rsp, %rcx
+ 
 	mov    $0x0,%eax
 	callq  step	
 	/*pop    %rbp*/
