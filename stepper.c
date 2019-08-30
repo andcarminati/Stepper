@@ -23,7 +23,31 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <string.h>
 #include <sys/types.h>
 
+/*Dwarf line debug information opcodes*/
+#define DW_LNS_copy 1
+#define DW_LNS_advance_pc 2
+#define DW_LNS_advance_line 3
+#define DW_LNS_set_file 4
+#define DW_LNS_set_column 5
+#define DW_LNS_negate_stmt 6
+#define DW_LNS_set_basic_block 7
+#define DW_LNS_const_add_pc 8
+#define DW_LNS_fixed_advance_pc 9
+
+/*Dwarf line debug information extended opcodes*/
+#define DW_LNE_end_sequence 1
+#define DW_LNE_set_address 2
+#define DW_LNE_define_file 3
+#define DW_LNE_set_discriminator 4 // dwarfv4
 //from https://wiki.osdev.org/DWARF
+
+typedef struct line_info{
+    long addr;
+    int line;
+    int column;
+    char* file;
+} line_info;
+
 
 typedef struct __attribute__((packed)) {
     uint32_t length;
@@ -37,6 +61,12 @@ typedef struct __attribute__((packed)) {
     uint8_t std_opcode_lengths[12];
 }
 debug_line_header;
+
+/*this structure allow us to walk on stack frames of chained procedure calls*/
+struct __attribute__((packed)) stack_link {
+    unsigned long base_pointer_reg;
+    unsigned long ra;
+};
 
 int init = 0;
 int init1 = 0;
@@ -55,7 +85,13 @@ char* strtab = NULL;
 char* debug_str = NULL;
 /*debug line data*/
 char* debug_line = NULL;
+/*debug line section size*/
 int debug_line_size;
+/*actual debug line parsed data*/
+line_info* lineinfo = NULL;
+int line_info_size;
+int line_info_used;
+
 
 /*program headers (not used yet)*/
 Elf64_Shdr* section_headers = NULL;
@@ -66,6 +102,9 @@ Elf64_Phdr* program_headers = NULL;
 int n_symbol;
 /*symbol table readed from elf*/
 Elf64_Sym* symbol_table = NULL;
+
+/*load offset - subtracted of every code address*/
+unsigned long offset = 0;
 
 /*initialize elf information*/
 void init_elf(void);
@@ -81,26 +120,25 @@ void load_strtab(void);
 void print_symbols(void);
 unsigned long find_address_by_name(char* func);
 char* find_symbol_name_by_ra(long);
+
+/*AMD64 specific functions*/
 void dump_call_seq_from_stack(unsigned long);
 void track_chaining(unsigned long);
-void dwarf_parse_line_info();
-void init_line_info_table();
 void dump_param_regs(long*);
-void print_line_info(unsigned long addr);
+
+/*Dwarf manipulation functions*/
+void dwarf_parse_line_info();
+void dwarf_init_line_info_table();
+void dwarf_print_line_info(unsigned long addr);
 
 /*reference to the mcount profile function*/
 void mcount();
 /*reference to the _start function. Used to determine the load offset*/
 void _start();
 
-/*this structure allow us to walk on stack frames of chained procedure calls*/
-struct __attribute__((packed)) stack_link {
-    unsigned long base_pointer_reg;
-    unsigned long ra;
-};
+/*memory reclaiming/deallocation*/
+void cleanup();
 
-/*load offset - subtracted of every code address*/
-unsigned long offset = 0;
 //long stack_pointer;
 
 /*entry point of the tracing code. Called from mcount*/
@@ -123,7 +161,7 @@ void __attribute__((no_instrument_function)) step(long addr,
         printf("run - begin to end execution.\n");
         printf("step - function by function execution.\n");
 
-
+        atexit(cleanup);
 
         exe_file = fopen("/proc/self/exe", "r");
 
@@ -156,6 +194,7 @@ void __attribute__((no_instrument_function)) step(long addr,
         init1 = 1;
         //gets(buffer);
         getchar();
+        
         return;
     } else {
         if (mode != 1) {
@@ -176,17 +215,16 @@ void __attribute__((no_instrument_function)) step(long addr,
         printf("%s", name);
         dump_param_regs(stack);
         //dump_call_seq_from_stack(stack_parent);
-        print_line_info(addr);
+        dwarf_print_line_info(addr);
         printf("\n");
     }
-
 
     return;
 }
 
 void __attribute__((no_instrument_function)) dump_param_regs(long* stack){
-    printf("(rdi=%ld, ", stack[4]);
-    printf("rsi=%ld, ",  stack[3]);
+    printf("(rdi=%ld,", stack[4]);
+    printf("rsi=%ld,",  stack[3]);
     printf("rdx=%ld,", stack[2]);
     printf("rcx=%ld...)", stack[1]);
 }
@@ -214,7 +252,7 @@ int __attribute__((no_instrument_function)) read_elf() {
     load_syntab();
     load_strtab();
     load_dwarf_data();
-    //dwarf_parse_line_info();
+    
     return 0;
 }
 
@@ -265,12 +303,9 @@ void __attribute__((no_instrument_function)) load_syntab() {
             if (!fread(symbol_table, header->sh_size, 1, exe_file)) {
                 printf("error");
             }
-
-
             return;
         }
     }
-
     printf("Error, no symbol table found\n");
 
     return;
@@ -291,7 +326,6 @@ void __attribute__((no_instrument_function)) load_strtab() {
             return;
         }
     }
-
     printf("Error, no strtab table found\n");
 
     return;
@@ -332,7 +366,7 @@ void __attribute__((no_instrument_function)) load_dwarf_data() {
     // }
 
     if (debug_line && debug_str) {
-        init_line_info_table();
+        dwarf_init_line_info_table();
         dwarf_parse_line_info();
         return;
     }
@@ -354,8 +388,6 @@ void __attribute__((no_instrument_function)) print_symbols() {
         if (ELF64_ST_TYPE(symb->st_info) == STT_FUNC) {
             printf("FUNCTION: %s addr: 0x%lx to 0x%lx\n", &strtab[symb->st_name], symb->st_value, symb->st_value + symb->st_size);
         }
-
-
     }
 }
 
@@ -389,7 +421,6 @@ char* __attribute__((no_instrument_function)) find_symbol_name_by_ra(long ra) {
                 symb_name = &strtab[symb->st_name];
             }
         }
-
     }
     return symb_name;
 }
@@ -415,8 +446,7 @@ void __attribute__((no_instrument_function)) track_chaining(unsigned long parent
     char* name;
     struct stack_link* link = (void*) (parent);
     int i = 0, j;
-
-    //printf("\t");
+    
     do {
         name = find_symbol_name_by_ra(link->ra);
         link = (void*) link->base_pointer_reg;
@@ -442,20 +472,6 @@ void __attribute__((no_instrument_function)) disable_tracing() {
 }
 
 
-#define DW_LNS_copy 1
-#define DW_LNS_advance_pc 2
-#define DW_LNS_advance_line 3
-#define DW_LNS_set_file 4
-#define DW_LNS_set_column 5
-#define DW_LNS_negate_stmt 6
-#define DW_LNS_set_basic_block 7
-#define DW_LNS_const_add_pc 8
-#define DW_LNS_fixed_advance_pc 9
-
-#define DW_LNE_end_sequence 1
-#define DW_LNE_set_address 2
-#define DW_LNE_define_file 3
-#define DW_LNE_set_discriminator 4 // dwarfv4
 
 //adapted from addr2line
 char* __attribute__((no_instrument_function)) ULEB128_read(char* buff, unsigned long *val) {
@@ -497,18 +513,7 @@ char* __attribute__((no_instrument_function)) SLEB128_read(char* buff, long *val
     return p;
 }
 
-typedef struct line_info{
-    long addr;
-    int line;
-    int column;
-    char* file;
-} line_info;
-
-line_info* lineinfo = NULL;
-int line_info_size;
-int line_info_used;
-
-void __attribute__((no_instrument_function)) init_line_info_table(){
+void __attribute__((no_instrument_function)) dwarf_init_line_info_table(){
     
     line_info_size = 200;
     line_info_used = 0;
@@ -535,7 +540,7 @@ void __attribute__((no_instrument_function))add_line_point(long addr, int line, 
     line_info_used++;
 }
 
-void __attribute__((no_instrument_function))print_line_info(unsigned long addr){
+void __attribute__((no_instrument_function))dwarf_print_line_info(unsigned long addr){
     
     if(!lineinfo){
         return;
@@ -727,4 +732,36 @@ void __attribute__((no_instrument_function)) dwarf_parse_line_info() {
             debug_line_begin = lines;
         }
     }
+}
+
+void __attribute__((no_instrument_function)) cleanup(){
+    
+    if(exe_file){
+        free(exe_file);
+    }
+    if(shstrtab){
+        free(shstrtab);
+    }
+    if(strtab){
+        free(strtab);
+    }
+    if(debug_str){
+        free(debug_str);
+    }
+    if(debug_line){
+        free(debug_line);
+    }
+    if(section_headers){
+        free(section_headers);
+    }
+    if(program_headers){
+        free(program_headers);
+    }
+    if(symbol_table){
+        free(symbol_table);
+    }
+    if(lineinfo){
+        free(lineinfo);
+    }
+    printf("End of traced execution\n");
 }
